@@ -1,16 +1,10 @@
 """Tests for the Plugwise Climate integration."""
-
 from unittest.mock import MagicMock
 
 from plugwise.exceptions import PlugwiseException
 import pytest
 
-from homeassistant.components.climate.const import (
-    HVAC_MODE_AUTO,
-    HVAC_MODE_COOL,
-    HVAC_MODE_HEAT,
-    HVAC_MODE_OFF,
-)
+from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
@@ -25,9 +19,8 @@ async def test_adam_climate_entity_attributes(
 
     assert state
     assert state.attributes["hvac_modes"] == [
-        HVAC_MODE_HEAT,
-        HVAC_MODE_OFF,
-        HVAC_MODE_AUTO,
+        HVACMode.HEAT,
+        HVACMode.AUTO,
     ]
 
     assert "preset_modes" in state.attributes
@@ -38,14 +31,16 @@ async def test_adam_climate_entity_attributes(
     assert state.attributes["preset_mode"] == "home"
     assert state.attributes["supported_features"] == 17
     assert state.attributes["temperature"] == 21.5
+    assert state.attributes["min_temp"] == 0.0
+    assert state.attributes["max_temp"] == 99.9
+    assert state.attributes["target_temp_step"] == 0.1
 
     state = hass.states.get("climate.zone_thermostat_jessie")
     assert state
 
     assert state.attributes["hvac_modes"] == [
-        HVAC_MODE_HEAT,
-        HVAC_MODE_OFF,
-        HVAC_MODE_AUTO,
+        HVACMode.HEAT,
+        HVACMode.AUTO,
     ]
 
     assert "preset_modes" in state.attributes
@@ -55,6 +50,9 @@ async def test_adam_climate_entity_attributes(
     assert state.attributes["current_temperature"] == 17.2
     assert state.attributes["preset_mode"] == "asleep"
     assert state.attributes["temperature"] == 15.0
+    assert state.attributes["min_temp"] == 0.0
+    assert state.attributes["max_temp"] == 99.9
+    assert state.attributes["target_temp_step"] == 0.1
 
 
 async def test_adam_climate_adjust_negative_testing(
@@ -87,7 +85,7 @@ async def test_adam_climate_adjust_negative_testing(
             "set_hvac_mode",
             {
                 "entity_id": "climate.zone_thermostat_jessie",
-                "hvac_mode": HVAC_MODE_AUTO,
+                "hvac_mode": HVACMode.AUTO,
             },
             blocking=True,
         )
@@ -152,11 +150,10 @@ async def test_anna_climate_entity_attributes(
     """Test creation of anna climate device environment."""
     state = hass.states.get("climate.anna")
     assert state
-    assert state.state == HVAC_MODE_HEAT
+    assert state.state == HVACMode.HEAT
     assert state.attributes["hvac_modes"] == [
-        HVAC_MODE_HEAT,
-        HVAC_MODE_OFF,
-        HVAC_MODE_COOL,
+        HVACMode.HEAT,
+        HVACMode.COOL,
     ]
     assert "no_frost" in state.attributes["preset_modes"]
     assert "home" in state.attributes["preset_modes"]
@@ -166,6 +163,9 @@ async def test_anna_climate_entity_attributes(
     assert state.attributes["preset_mode"] == "home"
     assert state.attributes["supported_features"] == 17
     assert state.attributes["temperature"] == 21.0
+    assert state.attributes["min_temp"] == 4.0
+    assert state.attributes["max_temp"] == 30.0
+    assert state.attributes["target_temp_step"] == 0.1
 
 
 async def test_anna_climate_entity_climate_changes(
@@ -206,7 +206,7 @@ async def test_anna_climate_entity_climate_changes(
     assert mock_smile_anna.set_temperature.call_count == 1
     assert mock_smile_anna.set_schedule_state.call_count == 1
     mock_smile_anna.set_schedule_state.assert_called_with(
-        "c784ee9fdab44e1395b8dee7d7a497d5", None, "false"
+        "c784ee9fdab44e1395b8dee7d7a497d5", None, "off"
     )
 
     # Auto mode is not available, no schedules

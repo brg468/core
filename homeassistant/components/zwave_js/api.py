@@ -60,8 +60,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
+from .config_validation import BITMASK_SCHEMA
 from .const import (
-    BITMASK_SCHEMA,
     CONF_DATA_COLLECTION_OPTED_IN,
     DATA_CLIENT,
     DOMAIN,
@@ -367,6 +367,7 @@ async def websocket_network_status(
 ) -> None:
     """Get the status of the Z-Wave JS network."""
     controller = client.driver.controller
+    await controller.async_get_state()
     data = {
         "client": {
             "ws_server_url": client.ws_server_url,
@@ -376,7 +377,7 @@ async def websocket_network_status(
         },
         "controller": {
             "home_id": controller.home_id,
-            "library_version": controller.library_version,
+            "sdk_version": controller.sdk_version,
             "type": controller.controller_type,
             "own_node_id": controller.own_node_id,
             "is_secondary": controller.is_secondary,
@@ -385,7 +386,7 @@ async def websocket_network_status(
             "was_real_primary": controller.was_real_primary,
             "is_static_update_controller": controller.is_static_update_controller,
             "is_slave": controller.is_slave,
-            "serial_api_version": controller.serial_api_version,
+            "firmware_version": controller.firmware_version,
             "manufacturer_id": controller.manufacturer_id,
             "product_id": controller.product_id,
             "product_type": controller.product_type,
@@ -393,6 +394,7 @@ async def websocket_network_status(
             "suc_node_id": controller.suc_node_id,
             "supports_timers": controller.supports_timers,
             "is_heal_network_active": controller.is_heal_network_active,
+            "inclusion_state": controller.inclusion_state,
             "nodes": list(client.driver.controller.nodes),
         },
     }
@@ -494,6 +496,7 @@ async def websocket_node_metadata(
         "wakeup": node.device_config.metadata.wakeup,
         "reset": node.device_config.metadata.reset,
         "device_database_url": node.device_database_url,
+        "comments": node.device_config.metadata.comments,
     }
     connection.send_result(
         msg[ID],

@@ -16,11 +16,12 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import TEMP_CELSIUS
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util.dt import utcnow
 
-from . import IntellifireDataUpdateCoordinator
 from .const import DOMAIN
+from .coordinator import IntellifireDataUpdateCoordinator
 from .entity import IntellifireEntity
 
 
@@ -44,6 +45,13 @@ def _time_remaining_to_timestamp(data: IntellifirePollData) -> datetime | None:
     if not (seconds_offset := data.timeremaining_s):
         return None
     return utcnow() + timedelta(seconds=seconds_offset)
+
+
+def _downtime_to_timestamp(data: IntellifirePollData) -> datetime | None:
+    """Define a sensor that takes into account a timezone."""
+    if not (seconds_offset := data.downtime):
+        return None
+    return utcnow() - timedelta(seconds=seconds_offset)
 
 
 INTELLIFIRE_SENSORS: tuple[IntellifireSensorEntityDescription, ...] = (
@@ -85,6 +93,40 @@ INTELLIFIRE_SENSORS: tuple[IntellifireSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=_time_remaining_to_timestamp,
     ),
+    IntellifireSensorEntityDescription(
+        key="downtime",
+        name="Downtime",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=_downtime_to_timestamp,
+    ),
+    IntellifireSensorEntityDescription(
+        key="uptime",
+        name="Uptime",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda data: utcnow() - timedelta(seconds=data.uptime),
+    ),
+    IntellifireSensorEntityDescription(
+        key="connection_quality",
+        name="Connection Quality",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.connection_quality,
+        entity_registry_enabled_default=False,
+    ),
+    IntellifireSensorEntityDescription(
+        key="ecm_latency",
+        name="ECM Latency",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.ecm_latency,
+        entity_registry_enabled_default=False,
+    ),
+    IntellifireSensorEntityDescription(
+        key="ipv4_address",
+        name="IP",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.ipv4_address,
+    ),
 )
 
 
@@ -108,4 +150,4 @@ class IntellifireSensor(IntellifireEntity, SensorEntity):
     @property
     def native_value(self) -> int | str | datetime | None:
         """Return the state."""
-        return self.entity_description.value_fn(self.coordinator.api.data)
+        return self.entity_description.value_fn(self.coordinator.read_api.data)

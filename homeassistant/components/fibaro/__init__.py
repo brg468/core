@@ -3,10 +3,20 @@ from __future__ import annotations
 
 from collections import defaultdict
 import logging
+from typing import Any
 
-from fiblary3.client.v4.client import Client as FibaroClient, StateHandler
+from fiblary3.client.v4.client import (
+    Client as FibaroClientV4,
+    StateHandler as StateHandlerV4,
+)
+from fiblary3.client.v5.client import (
+    Client as FibaroClientV5,
+    StateHandler as StateHandlerV5,
+)
+from fiblary3.common.exceptions import HTTPException
 import voluptuous as vol
 
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
     ATTR_ARMED,
     ATTR_BATTERY_LEVEL,
@@ -17,19 +27,18 @@ from homeassistant.const import (
     CONF_URL,
     CONF_USERNAME,
     CONF_WHITE_VALUE,
-    EVENT_HOMEASSISTANT_STOP,
     Platform,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import discovery
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.typing import ConfigType
-from homeassistant.util import convert, slugify
+from homeassistant.util import slugify
+
+from .const import CONF_IMPORT_PLUGINS, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
-
-ATTR_CURRENT_POWER_W = "current_power_w"
 
 CONF_COLOR = "color"
 CONF_DEVICE_CONFIG = "device_config"
@@ -37,8 +46,7 @@ CONF_DIMMING = "dimming"
 CONF_GATEWAYS = "gateways"
 CONF_PLUGINS = "plugins"
 CONF_RESET_COLOR = "reset_color"
-DOMAIN = "fibaro"
-FIBARO_CONTROLLERS = "fibaro_controllers"
+FIBARO_CONTROLLER = "fibaro_controller"
 FIBARO_DEVICES = "fibaro_devices"
 PLATFORMS = [
     Platform.BINARY_SENSOR,
@@ -102,11 +110,14 @@ GATEWAY_CONFIG = vol.Schema(
 )
 
 CONFIG_SCHEMA = vol.Schema(
-    {
-        DOMAIN: vol.Schema(
-            {vol.Required(CONF_GATEWAYS): vol.All(cv.ensure_list, [GATEWAY_CONFIG])}
-        )
-    },
+    vol.All(
+        cv.deprecated(DOMAIN),
+        {
+            DOMAIN: vol.Schema(
+                {vol.Required(CONF_GATEWAYS): vol.All(cv.ensure_list, [GATEWAY_CONFIG])}
+            )
+        },
+    ),
     extra=vol.ALLOW_EXTRA,
 )
 
@@ -114,23 +125,46 @@ CONFIG_SCHEMA = vol.Schema(
 class FibaroController:
     """Initiate Fibaro Controller Class."""
 
-    def __init__(self, config):
-        """Initialize the Fibaro controller."""
+    def __init__(
+        self, config: dict[str, Any], serial_number: str | None = None
+    ) -> None:
+        """Initialize the Fibaro controller.
 
-        self._client = FibaroClient(
-            config[CONF_URL], config[CONF_USERNAME], config[CONF_PASSWORD]
-        )
+        Version 4 is used for home center 2 (SN starts with HC2) and
+        home center lite (SN starts with HCL).
+
+        Version 5 is used for home center 3 (SN starts with HC3),
+        home center 3 lite (SN starts with HC3L) and yubii home (SN starts with YH).
+
+        Here the serial number is optional and we choose then the V4 client. You
+        should do that only when you use the FibaroController for login test as only
+        the login and info API's are equal throughout the different versions.
+        """
+        if (
+            serial_number is None
+            or serial_number.upper().startswith("HC2")
+            or serial_number.upper().startswith("HCL")
+        ):
+            self._client = FibaroClientV4(
+                config[CONF_URL], config[CONF_USERNAME], config[CONF_PASSWORD]
+            )
+        else:
+            self._client = FibaroClientV5(
+                config[CONF_URL], config[CONF_USERNAME], config[CONF_PASSWORD]
+            )
+
         self._scene_map = None
         # Whether to import devices from plugins
-        self._import_plugins = config[CONF_PLUGINS]
-        self._device_config = config[CONF_DEVICE_CONFIG]
+        self._import_plugins = config[CONF_IMPORT_PLUGINS]
         self._room_map = None  # Mapping roomId to room object
         self._device_map = None  # Mapping deviceId to device object
-        self.fibaro_devices = None  # List of devices by type
-        self._callbacks = {}  # Update value callbacks by deviceId
+        self.fibaro_devices: dict[str, list] = defaultdict(
+            list
+        )  # List of devices by type
+        self._callbacks: dict[Any, Any] = {}  # Update value callbacks by deviceId
         self._state_handler = None  # Fiblary's StateHandler object
-        self._excluded_devices = config[CONF_EXCLUDE]
         self.hub_serial = None  # Unique serial number of the hub
+        self.name = None  # The friendly name of the hub
 
     def connect(self):
         """Start the communication with the Fibaro controller."""
@@ -138,6 +172,7 @@ class FibaroController:
             login = self._client.login.get()
             info = self._client.info.get()
             self.hub_serial = slugify(info.serialNumber)
+            self.name = slugify(info.hcName)
         except AssertionError:
             _LOGGER.error("Can't connect to Fibaro HC. Please check URL")
             return False
@@ -152,9 +187,29 @@ class FibaroController:
         self._read_scenes()
         return True
 
+    def connect_with_error_handling(self) -> None:
+        """Translate connect errors to easily differentiate auth and connect failures.
+
+        When there is a better error handling in the used library this can be improved.
+        """
+        try:
+            connected = self.connect()
+            if not connected:
+                raise FibaroConnectFailed("Connect status is false")
+        except HTTPException as http_ex:
+            if http_ex.details == "Forbidden":
+                raise FibaroAuthFailed from http_ex
+
+            raise FibaroConnectFailed from http_ex
+        except Exception as ex:
+            raise FibaroConnectFailed from ex
+
     def enable_state_handler(self):
         """Start StateHandler thread for monitoring updates."""
-        self._state_handler = StateHandler(self._client, self._on_state_change)
+        if isinstance(self._client, FibaroClientV4):
+            self._state_handler = StateHandlerV4(self._client, self._on_state_change)
+        else:
+            self._state_handler = StateHandlerV5(self._client, self._on_state_change)
 
     def disable_state_handler(self):
         """Stop StateHandler thread used for monitoring updates."""
@@ -282,7 +337,6 @@ class FibaroController:
         """Read and process the device list."""
         devices = self._client.devices.list()
         self._device_map = {}
-        self.fibaro_devices = defaultdict(list)
         last_climate_parent = None
         last_endpoint = None
         for device in devices:
@@ -299,16 +353,11 @@ class FibaroController:
                 device.ha_id = (
                     f"{slugify(room_name)}_{slugify(device.name)}_{device.id}"
                 )
-                if (
-                    device.enabled
-                    and (
-                        "isPlugin" not in device
-                        or (not device.isPlugin or self._import_plugins)
-                    )
-                    and device.ha_id not in self._excluded_devices
+                if device.enabled and (
+                    "isPlugin" not in device
+                    or (not device.isPlugin or self._import_plugins)
                 ):
                     device.mapped_type = self._map_device_to_type(device)
-                    device.device_config = self._device_config.get(device.ha_id, {})
                 else:
                     device.mapped_type = None
                 if (dtype := device.mapped_type) is None:
@@ -357,39 +406,83 @@ class FibaroController:
                 pass
 
 
-def setup(hass: HomeAssistant, base_config: ConfigType) -> bool:
-    """Set up the Fibaro Component."""
+async def async_setup(hass: HomeAssistant, base_config: ConfigType) -> bool:
+    """Migrate configuration from configuration.yaml."""
+    if DOMAIN not in base_config:
+        return True
     gateways = base_config[DOMAIN][CONF_GATEWAYS]
-    hass.data[FIBARO_CONTROLLERS] = {}
-
-    def stop_fibaro(event):
-        """Stop Fibaro Thread."""
-        _LOGGER.info("Shutting down Fibaro connection")
-        for controller in hass.data[FIBARO_CONTROLLERS].values():
-            controller.disable_state_handler()
-
-    hass.data[FIBARO_DEVICES] = {}
-    for platform in PLATFORMS:
-        hass.data[FIBARO_DEVICES][platform] = []
-
-    for gateway in gateways:
-        controller = FibaroController(gateway)
-        if controller.connect():
-            hass.data[FIBARO_CONTROLLERS][controller.hub_serial] = controller
-            for platform in PLATFORMS:
-                hass.data[FIBARO_DEVICES][platform].extend(
-                    controller.fibaro_devices[platform]
-                )
-
-    if hass.data[FIBARO_CONTROLLERS]:
-        for platform in PLATFORMS:
-            discovery.load_platform(hass, platform, DOMAIN, {}, base_config)
-        for controller in hass.data[FIBARO_CONTROLLERS].values():
-            controller.enable_state_handler()
-        hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop_fibaro)
+    if gateways is None:
         return True
 
-    return False
+    # check if already configured
+    if hass.config_entries.async_entries(DOMAIN):
+        return True
+
+    for gateway in gateways:
+        # prepare new config based on configuration.yaml
+        conf = {
+            CONF_URL: gateway[CONF_URL],
+            CONF_USERNAME: gateway[CONF_USERNAME],
+            CONF_PASSWORD: gateway[CONF_PASSWORD],
+            CONF_IMPORT_PLUGINS: gateway[CONF_PLUGINS],
+        }
+
+        # import into config flow based configuration
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                DOMAIN, context={"source": SOURCE_IMPORT}, data=conf
+            )
+        )
+
+    return True
+
+
+def _init_controller(data: dict[str, Any], serial_number: str) -> FibaroController:
+    """Validate the user input allows us to connect to fibaro."""
+    controller = FibaroController(data, serial_number)
+    controller.connect_with_error_handling()
+    return controller
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up the Fibaro Component.
+
+    The unique id of the config entry is the serial number of the home center.
+    """
+    try:
+        controller = await hass.async_add_executor_job(
+            _init_controller, entry.data, entry.unique_id
+        )
+    except FibaroConnectFailed as connect_ex:
+        raise ConfigEntryNotReady(
+            f"Could not connect to controller at {entry.data[CONF_URL]}"
+        ) from connect_ex
+    except FibaroAuthFailed:
+        return False
+
+    data: dict[str, Any] = {}
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
+    data[FIBARO_CONTROLLER] = controller
+    devices = data[FIBARO_DEVICES] = {}
+    for platform in PLATFORMS:
+        devices[platform] = [*controller.fibaro_devices[platform]]
+
+    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+
+    controller.enable_state_handler()
+
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    _LOGGER.debug("Shutting down Fibaro connection")
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+    hass.data[DOMAIN][entry.entry_id][FIBARO_CONTROLLER].disable_state_handler()
+    hass.data[DOMAIN].pop(entry.entry_id)
+
+    return unload_ok
 
 
 class FibaroDevice(Entity):
@@ -474,15 +567,6 @@ class FibaroDevice(Entity):
             self.dont_know_message(cmd)
 
     @property
-    def current_power_w(self):
-        """Return the current power usage in W."""
-        if "power" in self.fibaro_device.properties and (
-            power := self.fibaro_device.properties.power
-        ):
-            return convert(power, float, 0.0)
-        return None
-
-    @property
     def current_binary_state(self):
         """Return the current binary state."""
         if self.fibaro_device.properties.value == "false":
@@ -511,11 +595,15 @@ class FibaroDevice(Entity):
                 )
             if "fibaroAlarmArm" in self.fibaro_device.interfaces:
                 attr[ATTR_ARMED] = bool(self.fibaro_device.properties.armed)
-            if "power" in self.fibaro_device.interfaces:
-                attr[ATTR_CURRENT_POWER_W] = convert(
-                    self.fibaro_device.properties.power, float, 0.0
-                )
         except (ValueError, KeyError):
             pass
 
         return attr
+
+
+class FibaroConnectFailed(HomeAssistantError):
+    """Error to indicate we cannot connect to fibaro home center."""
+
+
+class FibaroAuthFailed(HomeAssistantError):
+    """Error to indicate that authentication failed on fibaro home center."""

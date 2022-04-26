@@ -95,7 +95,7 @@ async def async_handle_webhook(
         else:
             received_from = request.remote
 
-        _LOGGER.warning(
+        _LOGGER.info(
             "Received message for unregistered webhook %s from %s",
             webhook_id,
             received_from,
@@ -145,7 +145,6 @@ class WebhookView(HomeAssistantView):
 
     async def _handle(self, request: Request, webhook_id: str) -> Response:
         """Handle webhook call."""
-        # pylint: disable=no-self-use
         _LOGGER.debug("Handling webhook %s payload for %s", request.method, webhook_id)
         hass = request.app["hass"]
         return await async_handle_webhook(hass, webhook_id, request)

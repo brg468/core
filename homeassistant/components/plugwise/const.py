@@ -24,8 +24,8 @@ PLATFORMS_GATEWAY = [
     Platform.CLIMATE,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.SELECT,
 ]
-SENSOR_PLATFORMS = [Platform.SENSOR, Platform.SWITCH]
 ZEROCONF_MAP = {
     "smile": "P1",
     "smile_thermo": "Anna",
@@ -44,3 +44,10 @@ DEFAULT_SCAN_INTERVAL = {
     "thermostat": timedelta(seconds=60),
 }
 DEFAULT_USERNAME = "smile"
+
+THERMOSTAT_CLASSES = [
+    "thermostat",
+    "thermostatic_radiator_valve",
+    "zone_thermometer",
+    "zone_thermostat",
+]

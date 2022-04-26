@@ -176,6 +176,10 @@ ZEROCONF = {
             }
         },
         {
+            "domain": "pure_energie",
+            "name": "smartbridge*"
+        },
+        {
             "domain": "rachio",
             "name": "rachio*"
         },
@@ -373,6 +377,11 @@ ZEROCONF = {
         {
             "domain": "kodi"
         }
+    ],
+    "_zwave-js-server._tcp.local.": [
+        {
+            "domain": "zwave_js"
+        }
     ]
 }
 
@@ -389,7 +398,26 @@ HOMEKIT = {
     "EB-*": "ecobee",
     "Healty Home Coach": "netatmo",
     "Iota": "abode",
-    "LIFX": "lifx",
+    "LIFX A19": "lifx",
+    "LIFX BR30": "lifx",
+    "LIFX Beam": "lifx",
+    "LIFX Candle": "lifx",
+    "LIFX Clean": "lifx",
+    "LIFX Color": "lifx",
+    "LIFX DLCOL": "lifx",
+    "LIFX DLWW": "lifx",
+    "LIFX Dlight": "lifx",
+    "LIFX Downlight": "lifx",
+    "LIFX Filament": "lifx",
+    "LIFX GU10": "lifx",
+    "LIFX Lightstrip": "lifx",
+    "LIFX Mini": "lifx",
+    "LIFX Nightvision": "lifx",
+    "LIFX Pls": "lifx",
+    "LIFX Plus": "lifx",
+    "LIFX Tile": "lifx",
+    "LIFX White": "lifx",
+    "LIFX Z": "lifx",
     "MYQ": "myq",
     "NL29": "nanoleaf",
     "NL42": "nanoleaf",

@@ -278,10 +278,10 @@ class NestEventViewBase(HomeAssistantView, ABC):
             )
         try:
             media = await self.load_media(nest_device, event_token)
-        except DecodeException as err:
-            raise HomeAssistantError(
-                "Even token was invalid: %s" % event_token
-            ) from err
+        except DecodeException:
+            return self._json_error(
+                f"Event token was invalid '{event_token}'", HTTPStatus.NOT_FOUND
+            )
         except ApiException as err:
             raise HomeAssistantError("Unable to fetch media for event") from err
         if not media:
@@ -356,8 +356,7 @@ class NestEventMediaThumbnailView(NestEventViewBase):
     async def handle_media(self, media: Media) -> web.StreamResponse:
         """Start a GET request."""
         contents = media.contents
-        content_type = media.content_type
-        if content_type == "image/jpeg":
+        if (content_type := media.content_type) == "image/jpeg":
             image = Image(media.event_image_type.content_type, contents)
             contents = img_util.scale_jpeg_camera_image(
                 image, THUMBNAIL_SIZE_PX, THUMBNAIL_SIZE_PX
