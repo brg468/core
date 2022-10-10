@@ -6,10 +6,16 @@
         },
         "step": {
             "user": {
+                "description": "Czy chcesz skonfigurowa\u0107 Mi\u0119dzynarodow\u0105 Stacj\u0119 Kosmiczn\u0105 (ISS)?"
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
                 "data": {
-                    "show_on_map": "Pokaza\u0107 na mapie?"
-                },
-                "description": "Czy chcesz skonfigurowa\u0107 Mi\u0119dzynarodow\u0105 Stacj\u0119 Kosmiczn\u0105?"
+                    "show_on_map": "Poka\u017c na mapie"
+                }
             }
         }
     }

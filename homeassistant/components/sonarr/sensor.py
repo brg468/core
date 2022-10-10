@@ -1,14 +1,17 @@
 """Support for Sonarr sensors."""
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Coroutine
-from datetime import timedelta
-from functools import wraps
-import logging
-from typing import Any, TypeVar
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, Generic
 
-from sonarr import Sonarr, SonarrConnectionError, SonarrError
-from typing_extensions import Concatenate, ParamSpec
+from aiopyarr import (
+    Diskspace,
+    SonarrCalendar,
+    SonarrQueue,
+    SonarrSeries,
+    SonarrWantedMissing,
+)
 
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
@@ -18,57 +21,74 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 import homeassistant.util.dt as dt_util
 
-from .const import CONF_UPCOMING_DAYS, CONF_WANTED_MAX_ITEMS, DATA_SONARR, DOMAIN
+from .const import DOMAIN
+from .coordinator import SonarrDataT, SonarrDataUpdateCoordinator
 from .entity import SonarrEntity
 
-_LOGGER = logging.getLogger(__name__)
 
-SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
-    SensorEntityDescription(
+@dataclass
+class SonarrSensorEntityDescriptionMixIn(Generic[SonarrDataT]):
+    """Mixin for Sonarr sensor."""
+
+    value_fn: Callable[[SonarrDataT], StateType]
+
+
+@dataclass
+class SonarrSensorEntityDescription(
+    SensorEntityDescription, SonarrSensorEntityDescriptionMixIn[SonarrDataT]
+):
+    """Class to describe a Sonarr sensor."""
+
+
+SENSOR_TYPES: dict[str, SonarrSensorEntityDescription[Any]] = {
+    "commands": SonarrSensorEntityDescription(
         key="commands",
-        name="Sonarr Commands",
+        name="Commands",
         icon="mdi:code-braces",
         native_unit_of_measurement="Commands",
         entity_registry_enabled_default=False,
+        value_fn=len,
     ),
-    SensorEntityDescription(
+    "diskspace": SonarrSensorEntityDescription[list[Diskspace]](
         key="diskspace",
-        name="Sonarr Disk Space",
+        name="Disk space",
         icon="mdi:harddisk",
         native_unit_of_measurement=DATA_GIGABYTES,
         entity_registry_enabled_default=False,
+        value_fn=lambda data: f"{sum(disk.freeSpace for disk in data) / 1024**3:.2f}",
     ),
-    SensorEntityDescription(
+    "queue": SonarrSensorEntityDescription[SonarrQueue](
         key="queue",
-        name="Sonarr Queue",
+        name="Queue",
         icon="mdi:download",
         native_unit_of_measurement="Episodes",
         entity_registry_enabled_default=False,
+        value_fn=lambda data: data.totalRecords,
     ),
-    SensorEntityDescription(
+    "series": SonarrSensorEntityDescription[list[SonarrSeries]](
         key="series",
-        name="Sonarr Shows",
+        name="Shows",
         icon="mdi:television",
         native_unit_of_measurement="Series",
         entity_registry_enabled_default=False,
+        value_fn=len,
     ),
-    SensorEntityDescription(
+    "upcoming": SonarrSensorEntityDescription[list[SonarrCalendar]](
         key="upcoming",
-        name="Sonarr Upcoming",
+        name="Upcoming",
         icon="mdi:television",
         native_unit_of_measurement="Episodes",
+        value_fn=len,
     ),
-    SensorEntityDescription(
+    "wanted": SonarrSensorEntityDescription[SonarrWantedMissing](
         key="wanted",
-        name="Sonarr Wanted",
+        name="Wanted",
         icon="mdi:television",
         native_unit_of_measurement="Episodes",
         entity_registry_enabled_default=False,
+        value_fn=lambda data: data.totalRecords,
     ),
-)
-
-_T = TypeVar("_T", bound="SonarrSensor")
-_P = ParamSpec("_P")
+}
 
 
 async def async_setup_entry(
@@ -77,162 +97,70 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Sonarr sensors based on a config entry."""
-    sonarr: Sonarr = hass.data[DOMAIN][entry.entry_id][DATA_SONARR]
-    options: dict[str, Any] = dict(entry.options)
-
-    entities = [
-        SonarrSensor(sonarr, entry.entry_id, description, options)
-        for description in SENSOR_TYPES
+    coordinators: dict[str, SonarrDataUpdateCoordinator[Any]] = hass.data[DOMAIN][
+        entry.entry_id
     ]
-
-    async_add_entities(entities, True)
-
-
-def sonarr_exception_handler(
-    func: Callable[Concatenate[_T, _P], Awaitable[None]]  # type: ignore[misc]
-) -> Callable[Concatenate[_T, _P], Coroutine[Any, Any, None]]:  # type: ignore[misc]
-    """Decorate Sonarr calls to handle Sonarr exceptions.
-
-    A decorator that wraps the passed in function, catches Sonarr errors,
-    and handles the availability of the entity.
-    """
-
-    @wraps(func)
-    async def wrapper(self: _T, *args: _P.args, **kwargs: _P.kwargs) -> None:
-        try:
-            await func(self, *args, **kwargs)
-            self.last_update_success = True
-        except SonarrConnectionError as error:
-            if self.available:
-                _LOGGER.error("Error communicating with API: %s", error)
-            self.last_update_success = False
-        except SonarrError as error:
-            if self.available:
-                _LOGGER.error("Invalid response from API: %s", error)
-                self.last_update_success = False
-
-    return wrapper
+    async_add_entities(
+        SonarrSensor(coordinators[coordinator_type], description)
+        for coordinator_type, description in SENSOR_TYPES.items()
+    )
 
 
-class SonarrSensor(SonarrEntity, SensorEntity):
+class SonarrSensor(SonarrEntity[SonarrDataT], SensorEntity):
     """Implementation of the Sonarr sensor."""
 
-    data: dict[str, Any]
-    last_update_success: bool
-    upcoming_days: int
-    wanted_max_items: int
-
-    def __init__(
-        self,
-        sonarr: Sonarr,
-        entry_id: str,
-        description: SensorEntityDescription,
-        options: dict[str, Any],
-    ) -> None:
-        """Initialize Sonarr sensor."""
-        self.entity_description = description
-        self._attr_unique_id = f"{entry_id}_{description.key}"
-
-        self.data = {}
-        self.last_update_success = True
-        self.upcoming_days = options[CONF_UPCOMING_DAYS]
-        self.wanted_max_items = options[CONF_WANTED_MAX_ITEMS]
-
-        super().__init__(
-            sonarr=sonarr,
-            entry_id=entry_id,
-            device_id=entry_id,
-        )
-
-    @property
-    def available(self) -> bool:
-        """Return sensor availability."""
-        return self.last_update_success
-
-    @sonarr_exception_handler
-    async def async_update(self) -> None:
-        """Update entity."""
-        key = self.entity_description.key
-
-        if key == "diskspace":
-            await self.sonarr.update()
-        elif key == "commands":
-            self.data[key] = await self.sonarr.commands()
-        elif key == "queue":
-            self.data[key] = await self.sonarr.queue()
-        elif key == "series":
-            self.data[key] = await self.sonarr.series()
-        elif key == "upcoming":
-            local = dt_util.start_of_local_day().replace(microsecond=0)
-            start = dt_util.as_utc(local)
-            end = start + timedelta(days=self.upcoming_days)
-
-            self.data[key] = await self.sonarr.calendar(
-                start=start.isoformat(), end=end.isoformat()
-            )
-        elif key == "wanted":
-            self.data[key] = await self.sonarr.wanted(page_size=self.wanted_max_items)
+    coordinator: SonarrDataUpdateCoordinator
+    entity_description: SonarrSensorEntityDescription[SonarrDataT]
 
     @property
     def extra_state_attributes(self) -> dict[str, str] | None:
         """Return the state attributes of the entity."""
         attrs = {}
         key = self.entity_description.key
+        data = self.coordinator.data
 
         if key == "diskspace":
-            for disk in self.sonarr.app.disks:
-                free = disk.free / 1024**3
-                total = disk.total / 1024**3
+            for disk in data:
+                free = disk.freeSpace / 1024**3
+                total = disk.totalSpace / 1024**3
                 usage = free / total * 100
 
                 attrs[
                     disk.path
                 ] = f"{free:.2f}/{total:.2f}{self.unit_of_measurement} ({usage:.2f}%)"
-        elif key == "commands" and self.data.get(key) is not None:
-            for command in self.data[key]:
-                attrs[command.name] = command.state
-        elif key == "queue" and self.data.get(key) is not None:
-            for item in self.data[key]:
-                remaining = 1 if item.size == 0 else item.size_remaining / item.size
+        elif key == "commands":
+            for command in data:
+                attrs[command.name] = command.status
+        elif key == "queue":
+            for item in data.records:
+                remaining = 1 if item.size == 0 else item.sizeleft / item.size
                 remaining_pct = 100 * (1 - remaining)
-                name = f"{item.episode.series.title} {item.episode.identifier}"
+                identifier = f"S{item.episode.seasonNumber:02d}E{item.episode. episodeNumber:02d}"
+
+                name = f"{item.series.title} {identifier}"
                 attrs[name] = f"{remaining_pct:.2f}%"
-        elif key == "series" and self.data.get(key) is not None:
-            for item in self.data[key]:
-                attrs[item.series.title] = f"{item.downloaded}/{item.episodes} Episodes"
-        elif key == "upcoming" and self.data.get(key) is not None:
-            for episode in self.data[key]:
-                attrs[episode.series.title] = episode.identifier
-        elif key == "wanted" and self.data.get(key) is not None:
-            for episode in self.data[key].episodes:
-                name = f"{episode.series.title} {episode.identifier}"
-                attrs[name] = episode.airdate
+        elif key == "series":
+            for item in data:
+                stats = item.statistics
+                attrs[
+                    item.title
+                ] = f"{getattr(stats,'episodeFileCount', 0)}/{getattr(stats, 'episodeCount', 0)} Episodes"
+        elif key == "upcoming":
+            for episode in data:
+                identifier = f"S{episode.seasonNumber:02d}E{episode.episodeNumber:02d}"
+                attrs[episode.series.title] = identifier
+        elif key == "wanted":
+            for item in data.records:
+                identifier = f"S{item.seasonNumber:02d}E{item.episodeNumber:02d}"
+
+                name = f"{item.series.title} {identifier}"
+                attrs[name] = dt_util.as_local(
+                    item.airDateUtc.replace(tzinfo=dt_util.UTC)
+                ).isoformat()
 
         return attrs
 
     @property
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
-        key = self.entity_description.key
-
-        if key == "diskspace":
-            total_free = sum(disk.free for disk in self.sonarr.app.disks)
-            free = total_free / 1024**3
-            return f"{free:.2f}"
-
-        if key == "commands" and self.data.get(key) is not None:
-            return len(self.data[key])
-
-        if key == "queue" and self.data.get(key) is not None:
-            return len(self.data[key])
-
-        if key == "series" and self.data.get(key) is not None:
-            return len(self.data[key])
-
-        if key == "upcoming" and self.data.get(key) is not None:
-            return len(self.data[key])
-
-        if key == "wanted" and self.data.get(key) is not None:
-            return self.data[key].total
-
-        return None
+        return self.entity_description.value_fn(self.coordinator.data)

@@ -36,6 +36,10 @@
       },
       "hassio_confirm": {
         "title": "Set up Z-Wave JS integration with the Z-Wave JS add-on"
+      },
+      "zeroconf_confirm": {
+        "description": "Do you want to add the Z-Wave JS Server with home ID {home_id} found at {url} to Home Assistant?",
+        "title": "Discovered Z-Wave JS Server"
       }
     },
     "error": {
@@ -139,6 +143,12 @@
       "refresh_value": "Refresh the value(s) for {entity_name}",
       "ping": "Ping device",
       "reset_meter": "Reset meters on {subtype}"
+    }
+  },
+  "issues": {
+    "invalid_server_version": {
+      "title": "Newer version of Z-Wave JS Server needed",
+      "description": "The version of Z-Wave JS Server you are currently running is too old for this version of Home Assistant. Please update the Z-Wave JS Server to the latest version to fix this issue."
     }
   }
 }

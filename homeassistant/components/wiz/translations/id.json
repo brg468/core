@@ -2,6 +2,7 @@
     "config": {
         "abort": {
             "already_configured": "Perangkat sudah dikonfigurasi",
+            "cannot_connect": "Gagal terhubung",
             "no_devices_found": "Tidak ada perangkat yang ditemukan di jaringan"
         },
         "error": {
@@ -13,9 +14,6 @@
         },
         "flow_title": "{name} ({host})",
         "step": {
-            "confirm": {
-                "description": "Ingin memulai penyiapan?"
-            },
             "discovery_confirm": {
                 "description": "Ingin menyiapkan {name} ({host})?"
             },
@@ -26,8 +24,7 @@
             },
             "user": {
                 "data": {
-                    "host": "Alamat IP",
-                    "name": "Nama"
+                    "host": "Alamat IP"
                 },
                 "description": "Jika Alamat IP dibiarkan kosong, proses penemuan akan digunakan untuk menemukan perangkat."
             }

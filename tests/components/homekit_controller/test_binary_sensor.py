@@ -4,7 +4,7 @@ from aiohomekit.model.services import ServicesTypes
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 
-from tests.components.homekit_controller.common import setup_test_component
+from .common import setup_test_component
 
 
 def create_motion_sensor_service(accessory):
@@ -114,7 +114,7 @@ async def test_carbon_monoxide_sensor_read_state(hass, utcnow):
     state = await helper.poll_and_get_state()
     assert state.state == "on"
 
-    assert state.attributes["device_class"] == BinarySensorDeviceClass.GAS
+    assert state.attributes["device_class"] == BinarySensorDeviceClass.CO
 
 
 def create_occupancy_sensor_service(accessory):

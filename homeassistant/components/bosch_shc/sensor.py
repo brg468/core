@@ -4,7 +4,11 @@ from __future__ import annotations
 from boschshcpy import SHCSession
 from boschshcpy.device import SHCDevice
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONCENTRATION_PARTS_PER_MILLION,
@@ -145,6 +149,13 @@ async def async_setup_entry(
                 entry_id=config_entry.entry_id,
             )
         )
+        entities.append(
+            CommunicationQualitySensor(
+                device=sensor,
+                parent_id=session.information.unique_id,
+                entry_id=config_entry.entry_id,
+            )
+        )
 
     if entities:
         async_add_entities(entities)
@@ -241,6 +252,23 @@ class TemperatureRatingSensor(SHCEntity, SensorEntity):
         return self._device.temperature_rating.name
 
 
+class CommunicationQualitySensor(SHCEntity, SensorEntity):
+    """Representation of an SHC communication quality reporting sensor."""
+
+    _attr_icon = "mdi:wifi"
+
+    def __init__(self, device: SHCDevice, parent_id: str, entry_id: str) -> None:
+        """Initialize an SHC communication quality reporting sensor."""
+        super().__init__(device, parent_id, entry_id)
+        self._attr_name = f"{device.name} Communication Quality"
+        self._attr_unique_id = f"{device.serial}_communication_quality"
+
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        return self._device.communicationquality.name
+
+
 class HumidityRatingSensor(SHCEntity, SensorEntity):
     """Representation of an SHC humidity rating sensor."""
 
@@ -293,6 +321,7 @@ class EnergySensor(SHCEntity, SensorEntity):
     """Representation of an SHC energy reporting sensor."""
 
     _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
 
     def __init__(self, device: SHCDevice, parent_id: str, entry_id: str) -> None:

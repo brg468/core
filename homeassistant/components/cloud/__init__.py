@@ -1,13 +1,14 @@
 """Component to integrate the Home Assistant cloud."""
+from __future__ import annotations
+
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from enum import Enum
 
 from hass_nabucasa import Cloud
 import voluptuous as vol
 
-from homeassistant.components.alexa import const as alexa_const
-from homeassistant.components.google_assistant import const as ga_c
+from homeassistant.components import alexa, google_assistant
 from homeassistant.const import (
     CONF_DESCRIPTION,
     CONF_MODE,
@@ -20,10 +21,12 @@ from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv, entityfilter
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
 )
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import bind_hass
 from homeassistant.util.aiohttp import MockRequest
@@ -64,7 +67,7 @@ SIGNAL_CLOUD_CONNECTION_STATE = "CLOUD_CONNECTION_STATE"
 ALEXA_ENTITY_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_DESCRIPTION): cv.string,
-        vol.Optional(alexa_const.CONF_DISPLAY_CATEGORIES): cv.string,
+        vol.Optional(alexa.CONF_DISPLAY_CATEGORIES): cv.string,
         vol.Optional(CONF_NAME): cv.string,
     }
 )
@@ -73,7 +76,7 @@ GOOGLE_ENTITY_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_NAME): cv.string,
         vol.Optional(CONF_ALIASES): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional(ga_c.CONF_ROOM_HINT): cv.string,
+        vol.Optional(google_assistant.CONF_ROOM_HINT): cv.string,
     }
 )
 
@@ -152,7 +155,8 @@ def async_is_connected(hass: HomeAssistant) -> bool:
 
 @callback
 def async_listen_connection_change(
-    hass: HomeAssistant, target: Callable[[CloudConnectionState], None]
+    hass: HomeAssistant,
+    target: Callable[[CloudConnectionState], Awaitable[None] | None],
 ) -> Callable[[], None]:
     """Notify on connection state changes."""
     return async_dispatcher_connect(hass, SIGNAL_CLOUD_CONNECTION_STATE, target)
@@ -247,11 +251,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         elif service.service == SERVICE_REMOTE_DISCONNECT:
             await prefs.async_update(remote_enabled=False)
 
-    hass.helpers.service.async_register_admin_service(
-        DOMAIN, SERVICE_REMOTE_CONNECT, _service_handler
-    )
-    hass.helpers.service.async_register_admin_service(
-        DOMAIN, SERVICE_REMOTE_DISCONNECT, _service_handler
+    async_register_admin_service(hass, DOMAIN, SERVICE_REMOTE_CONNECT, _service_handler)
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_REMOTE_DISCONNECT, _service_handler
     )
 
     loaded = False
@@ -265,15 +267,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             return
         loaded = True
 
-        await hass.helpers.discovery.async_load_platform(
-            Platform.BINARY_SENSOR, DOMAIN, {}, config
-        )
-        await hass.helpers.discovery.async_load_platform(
-            Platform.STT, DOMAIN, {}, config
-        )
-        await hass.helpers.discovery.async_load_platform(
-            Platform.TTS, DOMAIN, {}, config
-        )
+        await async_load_platform(hass, Platform.BINARY_SENSOR, DOMAIN, {}, config)
+        await async_load_platform(hass, Platform.STT, DOMAIN, {}, config)
+        await async_load_platform(hass, Platform.TTS, DOMAIN, {}, config)
 
         async_dispatcher_send(
             hass, SIGNAL_CLOUD_CONNECTION_STATE, CloudConnectionState.CLOUD_CONNECTED

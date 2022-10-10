@@ -170,6 +170,7 @@ SENSOR_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
     "WIND_SPEED": SensorEntityDescription(
         key="WIND_SPEED",
         native_unit_of_measurement=SPEED_KILOMETERS_PER_HOUR,
+        device_class=SensorDeviceClass.SPEED,
         icon="mdi:weather-windy",
     ),
     "WIND_DIRECTION": SensorEntityDescription(
@@ -272,8 +273,7 @@ def setup_platform(
     devices = []
     for conf in discovery_info[ATTR_DISCOVER_DEVICES]:
         state = conf.get(ATTR_PARAM)
-        entity_desc = SENSOR_DESCRIPTIONS.get(state)
-        if entity_desc is None:
+        if (entity_desc := SENSOR_DESCRIPTIONS.get(state)) is None:
             name = conf.get(ATTR_NAME)
             _LOGGER.warning(
                 "Sensor (%s) entity description is missing. Sensor state (%s) needs to be maintained",
