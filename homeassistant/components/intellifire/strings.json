@@ -5,7 +5,7 @@
       "manual_device_entry": {
         "description": "Local Configuration",
         "data": {
-          "host": "[%key:common::config_flow::data::host%] (IP Address)"
+          "host": "Host (IP Address)"
         }
       },
       "api_config": {
@@ -15,7 +15,7 @@
         }
       },
       "dhcp_confirm": {
-        "description": "Do you want to setup {host}\nSerial: {serial}?"
+        "description": "Do you want to set up {host}\nSerial: {serial}?"
       },
       "pick_device": {
         "title": "Device Selection",

@@ -6,7 +6,7 @@ import tempfile
 from typing import Any
 from unittest.mock import patch
 
-from pytest import LogCaptureFixture
+import pytest
 
 from homeassistant import config as hass_config, setup
 from homeassistant.components.cover import DOMAIN, SCAN_INTERVAL
@@ -38,7 +38,7 @@ async def setup_test_entity(hass: HomeAssistant, config_dict: dict[str, Any]) ->
     await hass.async_block_till_done()
 
 
-async def test_no_covers(caplog: LogCaptureFixture, hass: HomeAssistant) -> None:
+async def test_no_covers(caplog: pytest.LogCaptureFixture, hass: HomeAssistant) -> None:
     """Test that the cover does not polls when there's no state command."""
 
     with patch(
@@ -73,7 +73,10 @@ async def test_poll_when_cover_has_command_state(hass: HomeAssistant) -> None:
         async_fire_time_changed(hass, dt_util.utcnow() + SCAN_INTERVAL)
         await hass.async_block_till_done()
         check_output.assert_called_once_with(
-            "echo state", shell=True, timeout=15  # nosec # shell by design
+            "echo state",
+            shell=True,  # nosec # shell by design
+            timeout=15,
+            close_fds=False,
         )
 
 
@@ -153,9 +156,9 @@ async def test_reload(hass: HomeAssistant) -> None:
 
 
 async def test_move_cover_failure(
-    caplog: LogCaptureFixture, hass: HomeAssistant
+    caplog: pytest.LogCaptureFixture, hass: HomeAssistant
 ) -> None:
-    """Test with state value."""
+    """Test command failure."""
 
     await setup_test_entity(
         hass,
@@ -165,6 +168,7 @@ async def test_move_cover_failure(
         DOMAIN, SERVICE_OPEN_COVER, {ATTR_ENTITY_ID: "cover.test"}, blocking=True
     )
     assert "Command failed" in caplog.text
+    assert "return code 1" in caplog.text
 
 
 async def test_unique_id(hass: HomeAssistant) -> None:

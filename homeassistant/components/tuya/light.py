@@ -16,9 +16,9 @@ from homeassistant.components.light import (
     LightEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import HomeAssistantTuyaData
@@ -122,6 +122,10 @@ LIGHTS: dict[str, tuple[TuyaLightEntityDescription, ...]] = {
             brightness=DPCode.BRIGHT_VALUE,
             color_temp=DPCode.TEMP_VALUE,
             color_data=DPCode.COLOUR_DATA,
+        ),
+        # Some ceiling fan lights use LIGHT for DPCode instead of SWITCH_LED
+        TuyaLightEntityDescription(
+            key=DPCode.LIGHT,
         ),
     ),
     # Ambient Light
@@ -265,6 +269,17 @@ LIGHTS: dict[str, tuple[TuyaLightEntityDescription, ...]] = {
             brightness=DPCode.BRIGHT_VALUE_2,
         ),
     ),
+    # Wake Up Light II
+    # Not documented
+    "hxd": (
+        TuyaLightEntityDescription(
+            key=DPCode.SWITCH_LED,
+            name="Light",
+            brightness=(DPCode.BRIGHT_VALUE_V2, DPCode.BRIGHT_VALUE),
+            brightness_max=DPCode.BRIGHTNESS_MAX_1,
+            brightness_min=DPCode.BRIGHTNESS_MIN_1,
+        ),
+    ),
     # Solar Light
     # https://developer.tuya.com/en/docs/iot/tynd?id=Kaof8j02e1t98
     "tyndj": (
@@ -288,7 +303,7 @@ LIGHTS: dict[str, tuple[TuyaLightEntityDescription, ...]] = {
         ),
         TuyaLightEntityDescription(
             key=DPCode.SWITCH_NIGHT_LIGHT,
-            name="Night Light",
+            name="Night light",
         ),
     ),
     # Remote Control
@@ -398,7 +413,7 @@ class TuyaLightEntity(TuyaEntity, LightEntity):
         super().__init__(device, device_manager)
         self.entity_description = description
         self._attr_unique_id = f"{super().unique_id}{description.key}"
-        self._attr_supported_color_modes = set()
+        self._attr_supported_color_modes: set[ColorMode] = set()
 
         # Determine DPCodes
         self._color_mode_dpcode = self.find_dpcode(

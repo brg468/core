@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from pprint import pformat
 from typing import Any, cast
 from urllib.parse import urlparse
 
 import async_timeout
-from pydeconz.errors import RequestError, ResponseError
+from pydeconz.errors import LinkButtonNotPressed, RequestError, ResponseError
 from pydeconz.gateway import DeconzSession
 from pydeconz.utils import (
     DiscoveredBridge,
@@ -31,12 +32,15 @@ from .const import (
     CONF_ALLOW_CLIP_SENSOR,
     CONF_ALLOW_DECONZ_GROUPS,
     CONF_ALLOW_NEW_DEVICES,
+    DEFAULT_ALLOW_CLIP_SENSOR,
+    DEFAULT_ALLOW_DECONZ_GROUPS,
+    DEFAULT_ALLOW_NEW_DEVICES,
     DEFAULT_PORT,
     DOMAIN,
     HASSIO_CONFIGURATION_URL,
     LOGGER,
 )
-from .gateway import DeconzGateway, get_gateway_from_config_entry
+from .gateway import DeconzGateway
 
 DECONZ_MANUFACTURERURL = "http://www.dresden-elektronik.de"
 CONF_SERIAL = "serial"
@@ -83,8 +87,7 @@ class DeconzFlowHandler(ConfigFlow, domain=DOMAIN):
         If no bridge is found allow user to manually input configuration.
         """
         if user_input is not None:
-
-            if CONF_MANUAL_INPUT == user_input[CONF_HOST]:
+            if user_input[CONF_HOST] == CONF_MANUAL_INPUT:
                 return await self.async_step_manual_input()
 
             for bridge in self.bridges:
@@ -157,6 +160,9 @@ class DeconzFlowHandler(ConfigFlow, domain=DOMAIN):
                 async with async_timeout.timeout(10):
                     api_key = await deconz_session.get_api_key()
 
+            except LinkButtonNotPressed:
+                errors["base"] = "linking_not_possible"
+
             except (ResponseError, RequestError, asyncio.TimeoutError):
                 errors["base"] = "no_key"
 
@@ -198,23 +204,17 @@ class DeconzFlowHandler(ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_reauth(self, config: dict[str, Any]) -> FlowResult:
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
         """Trigger a reauthentication flow."""
-        self.context["title_placeholders"] = {CONF_HOST: config[CONF_HOST]}
+        self.context["title_placeholders"] = {CONF_HOST: entry_data[CONF_HOST]}
 
-        self.host = config[CONF_HOST]
-        self.port = config[CONF_PORT]
+        self.host = entry_data[CONF_HOST]
+        self.port = entry_data[CONF_PORT]
 
         return await self.async_step_link()
 
     async def async_step_ssdp(self, discovery_info: ssdp.SsdpServiceInfo) -> FlowResult:
         """Handle a discovered deCONZ bridge."""
-        if (
-            discovery_info.upnp.get(ssdp.ATTR_UPNP_MANUFACTURER_URL)
-            != DECONZ_MANUFACTURERURL
-        ):
-            return self.async_abort(reason="not_deconz_bridge")
-
         LOGGER.debug("deCONZ SSDP discovery %s", pformat(discovery_info))
 
         self.bridge_id = normalize_bridge_id(discovery_info.upnp[ssdp.ATTR_UPNP_SERIAL])
@@ -298,7 +298,6 @@ class DeconzOptionsFlowHandler(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Manage the deCONZ options."""
-        self.gateway = get_gateway_from_config_entry(self.hass, self.config_entry)
         return await self.async_step_deconz_devices()
 
     async def async_step_deconz_devices(
@@ -309,22 +308,20 @@ class DeconzOptionsFlowHandler(OptionsFlow):
             self.options.update(user_input)
             return self.async_create_entry(title="", data=self.options)
 
+        schema_options = {}
+        for option, default in (
+            (CONF_ALLOW_CLIP_SENSOR, DEFAULT_ALLOW_CLIP_SENSOR),
+            (CONF_ALLOW_DECONZ_GROUPS, DEFAULT_ALLOW_DECONZ_GROUPS),
+            (CONF_ALLOW_NEW_DEVICES, DEFAULT_ALLOW_NEW_DEVICES),
+        ):
+            schema_options[
+                vol.Optional(
+                    option,
+                    default=self.config_entry.options.get(option, default),
+                )
+            ] = bool
+
         return self.async_show_form(
             step_id="deconz_devices",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_ALLOW_CLIP_SENSOR,
-                        default=self.gateway.option_allow_clip_sensor,
-                    ): bool,
-                    vol.Optional(
-                        CONF_ALLOW_DECONZ_GROUPS,
-                        default=self.gateway.option_allow_deconz_groups,
-                    ): bool,
-                    vol.Optional(
-                        CONF_ALLOW_NEW_DEVICES,
-                        default=self.gateway.option_allow_new_devices,
-                    ): bool,
-                }
-            ),
+            data_schema=vol.Schema(schema_options),
         )

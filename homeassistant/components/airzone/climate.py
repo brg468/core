@@ -1,7 +1,6 @@
 """Support for the Airzone climate."""
 from __future__ import annotations
 
-import logging
 from typing import Any, Final
 
 from aioairzone.common import OperationMode
@@ -9,8 +8,6 @@ from aioairzone.const import (
     API_MODE,
     API_ON,
     API_SET_POINT,
-    API_SYSTEM_ID,
-    API_ZONE_ID,
     AZD_DEMAND,
     AZD_HUMIDITY,
     AZD_MASTER,
@@ -25,10 +22,9 @@ from aioairzone.const import (
     AZD_TEMP_UNIT,
     AZD_ZONES,
 )
-from aioairzone.exceptions import AirzoneError
 
-from homeassistant.components.climate import ClimateEntity
-from homeassistant.components.climate.const import (
+from homeassistant.components.climate import (
+    ClimateEntity,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
@@ -39,12 +35,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import AirzoneZoneEntity
 from .const import API_TEMPERATURE_STEP, DOMAIN, TEMP_UNIT_LIB_TO_HASS
 from .coordinator import AirzoneUpdateCoordinator
-
-_LOGGER = logging.getLogger(__name__)
-
+from .entity import AirzoneZoneEntity
 
 HVAC_ACTION_LIB_TO_HASS: Final[dict[OperationMode, HVACAction]] = {
     OperationMode.STOP: HVACAction.OFF,
@@ -114,23 +107,6 @@ class AirzoneClimate(AirzoneZoneEntity, ClimateEntity):
         ]
         self._async_update_attrs()
 
-    async def _async_update_hvac_params(self, params: dict[str, Any]) -> None:
-        """Send HVAC parameters to API."""
-        _params = {
-            API_SYSTEM_ID: self.system_id,
-            API_ZONE_ID: self.zone_id,
-            **params,
-        }
-        _LOGGER.debug("update_hvac_params=%s", _params)
-        try:
-            await self.coordinator.airzone.put_hvac(_params)
-        except AirzoneError as error:
-            raise HomeAssistantError(
-                f"Failed to set zone {self.name}: {error}"
-            ) from error
-        else:
-            self.coordinator.async_set_updated_data(self.coordinator.airzone.data())
-
     async def async_turn_on(self) -> None:
         """Turn the entity on."""
         params = {
@@ -162,7 +138,7 @@ class AirzoneClimate(AirzoneZoneEntity, ClimateEntity):
             params[API_ON] = 1
         await self._async_update_hvac_params(params)
 
-    async def async_set_temperature(self, **kwargs) -> None:
+    async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
         params = {
             API_SET_POINT: kwargs.get(ATTR_TEMPERATURE),

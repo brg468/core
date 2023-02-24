@@ -144,10 +144,8 @@ async def async_refresh_devices_service(gateway: DeconzGateway) -> None:
     """Refresh available devices from deCONZ."""
     gateway.ignore_state_updates = True
     await gateway.api.refresh_state()
+    gateway.load_ignored_devices()
     gateway.ignore_state_updates = False
-
-    for resource_type in gateway.deconz_resource_type_to_signal_new_device:
-        gateway.async_add_device_callback(resource_type, force=True)
 
 
 async def async_remove_orphaned_entries_service(gateway: DeconzGateway) -> None:
@@ -188,10 +186,8 @@ async def async_remove_orphaned_entries_service(gateway: DeconzGateway) -> None:
             devices_to_be_removed.remove(event.device_id)
 
     for entry in entity_entries:
-
         # Don't remove available entities
         if entry.unique_id in gateway.entities[entry.domain]:
-
             # Don't remove devices with available entities
             if entry.device_id in devices_to_be_removed:
                 devices_to_be_removed.remove(entry.device_id)

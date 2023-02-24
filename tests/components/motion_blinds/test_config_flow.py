@@ -9,6 +9,7 @@ from homeassistant.components import dhcp
 from homeassistant.components.motion_blinds import const
 from homeassistant.components.motion_blinds.config_flow import DEFAULT_GATEWAY_NAME
 from homeassistant.const import CONF_API_KEY, CONF_HOST
+from homeassistant.core import HomeAssistant
 
 from tests.common import MockConfigEntry
 
@@ -103,7 +104,7 @@ def motion_blinds_connect_fixture(mock_get_source_ip):
         yield
 
 
-async def test_config_flow_manual_host_success(hass):
+async def test_config_flow_manual_host_success(hass: HomeAssistant) -> None:
     """Successful flow manually initialized by the user."""
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -136,7 +137,7 @@ async def test_config_flow_manual_host_success(hass):
     }
 
 
-async def test_config_flow_discovery_1_success(hass):
+async def test_config_flow_discovery_1_success(hass: HomeAssistant) -> None:
     """Successful flow with 1 gateway discovered."""
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -173,7 +174,7 @@ async def test_config_flow_discovery_1_success(hass):
     }
 
 
-async def test_config_flow_discovery_2_success(hass):
+async def test_config_flow_discovery_2_success(hass: HomeAssistant) -> None:
     """Successful flow with 2 gateway discovered."""
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -227,7 +228,7 @@ async def test_config_flow_discovery_2_success(hass):
     }
 
 
-async def test_config_flow_connection_error(hass):
+async def test_config_flow_connection_error(hass: HomeAssistant) -> None:
     """Failed flow manually initialized by the user with connection timeout."""
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -259,7 +260,7 @@ async def test_config_flow_connection_error(hass):
     assert result["reason"] == "connection_error"
 
 
-async def test_config_flow_discovery_fail(hass):
+async def test_config_flow_discovery_fail(hass: HomeAssistant) -> None:
     """Failed flow with no gateways discovered."""
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -283,7 +284,7 @@ async def test_config_flow_discovery_fail(hass):
     assert result["errors"] == {"base": "discovery_error"}
 
 
-async def test_config_flow_invalid_interface(hass):
+async def test_config_flow_invalid_interface(hass: HomeAssistant) -> None:
     """Failed flow manually initialized by the user with invalid interface."""
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -320,7 +321,7 @@ async def test_config_flow_invalid_interface(hass):
     }
 
 
-async def test_dhcp_flow(hass):
+async def test_dhcp_flow(hass: HomeAssistant) -> None:
     """Successful flow from DHCP discovery."""
     dhcp_data = dhcp.DhcpServiceInfo(
         ip=TEST_HOST,
@@ -336,10 +337,14 @@ async def test_dhcp_flow(hass):
     assert result["step_id"] == "connect"
     assert result["errors"] == {}
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {CONF_API_KEY: TEST_API_KEY},
-    )
+    with patch(
+        "homeassistant.components.motion_blinds.gateway.AsyncMotionMulticast.Start_listen",
+        side_effect=OSError,
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_API_KEY: TEST_API_KEY},
+        )
 
     assert result["type"] == "create_entry"
     assert result["title"] == DEFAULT_GATEWAY_NAME
@@ -350,7 +355,7 @@ async def test_dhcp_flow(hass):
     }
 
 
-async def test_options_flow(hass):
+async def test_options_flow(hass: HomeAssistant) -> None:
     """Test specifying non default settings using options flow."""
     config_entry = MockConfigEntry(
         domain=const.DOMAIN,
@@ -368,7 +373,7 @@ async def test_options_flow(hass):
 
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
 
-    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "init"
 
     result = await hass.config_entries.options.async_configure(
@@ -376,13 +381,13 @@ async def test_options_flow(hass):
         user_input={const.CONF_WAIT_FOR_PUSH: False},
     )
 
-    assert result["type"] == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert config_entry.options == {
         const.CONF_WAIT_FOR_PUSH: False,
     }
 
 
-async def test_change_connection_settings(hass):
+async def test_change_connection_settings(hass: HomeAssistant) -> None:
     """Test changing connection settings by issuing a second user config flow."""
     config_entry = MockConfigEntry(
         domain=const.DOMAIN,

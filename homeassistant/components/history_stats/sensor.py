@@ -6,16 +6,22 @@ import datetime
 
 import voluptuous as vol
 
-from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
+from homeassistant.components.sensor import (
+    PLATFORM_SCHEMA,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.const import (
     CONF_ENTITY_ID,
     CONF_NAME,
     CONF_STATE,
     CONF_TYPE,
     PERCENTAGE,
-    TIME_HOURS,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import PlatformNotReady
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.reload import async_setup_reload_service
@@ -26,7 +32,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import DOMAIN, PLATFORMS
 from .coordinator import HistoryStatsUpdateCoordinator
 from .data import HistoryStats
-from .helpers import pretty_duration, pretty_ratio
+from .helpers import pretty_ratio
 
 CONF_START = "start"
 CONF_END = "end"
@@ -40,13 +46,11 @@ CONF_TYPE_KEYS = [CONF_TYPE_TIME, CONF_TYPE_RATIO, CONF_TYPE_COUNT]
 
 DEFAULT_NAME = "unnamed statistics"
 UNITS: dict[str, str] = {
-    CONF_TYPE_TIME: TIME_HOURS,
+    CONF_TYPE_TIME: UnitOfTime.HOURS,
     CONF_TYPE_RATIO: PERCENTAGE,
     CONF_TYPE_COUNT: "",
 }
 ICON = "mdi:chart-line"
-
-ATTR_VALUE = "value"
 
 
 def exactly_two_period_keys(conf):
@@ -98,6 +102,9 @@ async def async_setup_platform(
 
     history_stats = HistoryStats(hass, entity_id, entity_states, start, end, duration)
     coordinator = HistoryStatsUpdateCoordinator(hass, history_stats, name)
+    await coordinator.async_refresh()
+    if not coordinator.last_update_success:
+        raise PlatformNotReady from coordinator.last_exception
     async_add_entities([HistoryStatsSensor(coordinator, sensor_type, name)])
 
 
@@ -136,6 +143,8 @@ class HistoryStatsSensorBase(
 class HistoryStatsSensor(HistoryStatsSensorBase):
     """A HistoryStats sensor."""
 
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
     def __init__(
         self,
         coordinator: HistoryStatsUpdateCoordinator,
@@ -146,6 +155,9 @@ class HistoryStatsSensor(HistoryStatsSensorBase):
         super().__init__(coordinator, name)
         self._attr_native_unit_of_measurement = UNITS[sensor_type]
         self._type = sensor_type
+        self._process_update()
+        if self._type == CONF_TYPE_TIME:
+            self._attr_device_class = SensorDeviceClass.DURATION
 
     @callback
     def _process_update(self) -> None:
@@ -153,7 +165,6 @@ class HistoryStatsSensor(HistoryStatsSensorBase):
         state = self.coordinator.data
         if state is None or state.hours_matched is None:
             self._attr_native_value = None
-            self._attr_extra_state_attributes = {}
             return
 
         if self._type == CONF_TYPE_TIME:
@@ -161,7 +172,4 @@ class HistoryStatsSensor(HistoryStatsSensorBase):
         elif self._type == CONF_TYPE_RATIO:
             self._attr_native_value = pretty_ratio(state.hours_matched, state.period)
         elif self._type == CONF_TYPE_COUNT:
-            self._attr_native_value = state.changes_to_match_state
-        self._attr_extra_state_attributes = {
-            ATTR_VALUE: pretty_duration(state.hours_matched)
-        }
+            self._attr_native_value = state.match_count

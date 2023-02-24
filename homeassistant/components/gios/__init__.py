@@ -13,9 +13,8 @@ from homeassistant.components.air_quality import DOMAIN as AIR_QUALITY_PLATFORM
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.device_registry import async_get_registry
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import API_TIMEOUT, CONF_STATION_ID, DOMAIN, SCAN_INTERVAL
@@ -31,11 +30,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Using station_id: %d", station_id)
 
     # We used to use int as config_entry unique_id, convert this to str.
-    if isinstance(entry.unique_id, int):  # type: ignore[unreachable]
+    if isinstance(entry.unique_id, int):
         hass.config_entries.async_update_entry(entry, unique_id=str(station_id))  # type: ignore[unreachable]
 
     # We used to use int in device_entry identifiers, convert this to str.
-    device_registry = await async_get_registry(hass)
+    device_registry = dr.async_get(hass)
     old_ids = (DOMAIN, station_id)
     device_entry = device_registry.async_get_device({old_ids})  # type: ignore[arg-type]
     if device_entry and entry.entry_id in device_entry.config_entries:
@@ -50,10 +49,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Remove air_quality entities from registry if they exist
-    ent_reg = entity_registry.async_get(hass)
+    ent_reg = er.async_get(hass)
     unique_id = str(coordinator.gios.station_id)
     if entity_id := ent_reg.async_get_entity_id(
         AIR_QUALITY_PLATFORM, DOMAIN, unique_id

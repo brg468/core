@@ -1,7 +1,6 @@
 """Config flow for HomeKit integration."""
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Iterable
 from copy import deepcopy
 import random
@@ -37,7 +36,7 @@ from homeassistant.helpers.entityfilter import (
     CONF_INCLUDE_DOMAINS,
     CONF_INCLUDE_ENTITIES,
 )
-from homeassistant.loader import async_get_integration
+from homeassistant.loader import async_get_integrations
 
 from .const import (
     CONF_ENTITY_CONFIG,
@@ -163,17 +162,14 @@ def _async_cameras_from_entities(entities: list[str]) -> dict[str, str]:
 
 async def _async_name_to_type_map(hass: HomeAssistant) -> dict[str, str]:
     """Create a mapping of types of devices/entities HomeKit can support."""
-    integrations = await asyncio.gather(
-        *(async_get_integration(hass, domain) for domain in SUPPORTED_DOMAINS),
-        return_exceptions=True,
-    )
-    name_to_type_map = {
-        domain: domain
-        if isinstance(integrations[idx], Exception)
-        else integrations[idx].name
-        for idx, domain in enumerate(SUPPORTED_DOMAINS)
+    integrations = await async_get_integrations(hass, SUPPORTED_DOMAINS)
+    return {
+        domain: integration_or_exception.name
+        if (integration_or_exception := integrations[domain])
+        and not isinstance(integration_or_exception, Exception)
+        else domain
+        for domain in SUPPORTED_DOMAINS
     }
-    return name_to_type_map
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -467,7 +463,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         entity_filter = self.hk_options.get(CONF_FILTER, {})
         entities = entity_filter.get(CONF_INCLUDE_ENTITIES, [])
         all_supported_entities = _async_get_matching_entities(
-            self.hass, domains, include_entity_category=True
+            self.hass, domains, include_entity_category=True, include_hidden=True
         )
         # In accessory mode we can only have one
         default_value = next(
@@ -508,7 +504,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         entities = entity_filter.get(CONF_INCLUDE_ENTITIES, [])
 
         all_supported_entities = _async_get_matching_entities(
-            self.hass, domains, include_entity_category=True
+            self.hass, domains, include_entity_category=True, include_hidden=True
         )
         if not entities:
             entities = entity_filter.get(CONF_EXCLUDE_ENTITIES, [])
@@ -646,12 +642,13 @@ def _exclude_by_entity_registry(
     ent_reg: entity_registry.EntityRegistry,
     entity_id: str,
     include_entity_category: bool,
+    include_hidden: bool,
 ) -> bool:
     """Filter out hidden entities and ones with entity category (unless specified)."""
     return bool(
         (entry := ent_reg.async_get(entity_id))
         and (
-            entry.hidden_by is not None
+            (not include_hidden and entry.hidden_by is not None)
             or (not include_entity_category and entry.entity_category is not None)
         )
     )
@@ -661,17 +658,20 @@ def _async_get_matching_entities(
     hass: HomeAssistant,
     domains: list[str] | None = None,
     include_entity_category: bool = False,
+    include_hidden: bool = False,
 ) -> dict[str, str]:
     """Fetch all entities or entities in the given domains."""
     ent_reg = entity_registry.async_get(hass)
     return {
-        state.entity_id: f"{state.attributes.get(ATTR_FRIENDLY_NAME, state.entity_id)} ({state.entity_id})"
+        state.entity_id: (
+            f"{state.attributes.get(ATTR_FRIENDLY_NAME, state.entity_id)} ({state.entity_id})"
+        )
         for state in sorted(
             hass.states.async_all(domains and set(domains)),
             key=lambda item: item.entity_id,
         )
         if not _exclude_by_entity_registry(
-            ent_reg, state.entity_id, include_entity_category
+            ent_reg, state.entity_id, include_entity_category, include_hidden
         )
     }
 

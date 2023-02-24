@@ -52,12 +52,17 @@ class CommandLineNotificationService(BaseNotificationService):
             self.command,
             universal_newlines=True,
             stdin=subprocess.PIPE,
+            close_fds=False,  # required for posix_spawn
             shell=True,  # nosec # shell by design
         ) as proc:
             try:
                 proc.communicate(input=message, timeout=self._timeout)
                 if proc.returncode != 0:
-                    _LOGGER.error("Command failed: %s", self.command)
+                    _LOGGER.error(
+                        "Command failed (with return code %s): %s",
+                        proc.returncode,
+                        self.command,
+                    )
             except subprocess.TimeoutExpired:
                 _LOGGER.error("Timeout for command: %s", self.command)
                 kill_subprocess(proc)

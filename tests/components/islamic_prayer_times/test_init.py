@@ -1,5 +1,4 @@
 """Tests for Islamic Prayer Times init."""
-
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -9,7 +8,7 @@ import pytest
 
 from homeassistant import config_entries
 from homeassistant.components import islamic_prayer_times
-from homeassistant.setup import async_setup_component
+from homeassistant.core import HomeAssistant
 
 from . import (
     NEW_PRAYER_TIMES,
@@ -28,23 +27,7 @@ def set_utc(hass):
     hass.config.set_time_zone("UTC")
 
 
-async def test_setup_with_config(hass):
-    """Test that we import the config and setup the client."""
-    config = {
-        islamic_prayer_times.DOMAIN: {islamic_prayer_times.CONF_CALC_METHOD: "isna"}
-    }
-    with patch(
-        "prayer_times_calculator.PrayerTimesCalculator.fetch_prayer_times",
-        return_value=PRAYER_TIMES,
-    ):
-        assert (
-            await async_setup_component(hass, islamic_prayer_times.DOMAIN, config)
-            is True
-        )
-        await hass.async_block_till_done()
-
-
-async def test_successful_config_entry(hass):
+async def test_successful_config_entry(hass: HomeAssistant) -> None:
     """Test that Islamic Prayer Times is configured successfully."""
 
     entry = MockConfigEntry(
@@ -66,7 +49,7 @@ async def test_successful_config_entry(hass):
         }
 
 
-async def test_setup_failed(hass):
+async def test_setup_failed(hass: HomeAssistant) -> None:
     """Test Islamic Prayer Times failed due to an error."""
 
     entry = MockConfigEntry(
@@ -85,7 +68,7 @@ async def test_setup_failed(hass):
         assert entry.state is config_entries.ConfigEntryState.SETUP_RETRY
 
 
-async def test_unload_entry(hass):
+async def test_unload_entry(hass: HomeAssistant) -> None:
     """Test removing Islamic Prayer Times."""
     entry = MockConfigEntry(
         domain=islamic_prayer_times.DOMAIN,
@@ -105,7 +88,7 @@ async def test_unload_entry(hass):
         assert islamic_prayer_times.DOMAIN not in hass.data
 
 
-async def test_islamic_prayer_times_timestamp_format(hass):
+async def test_islamic_prayer_times_timestamp_format(hass: HomeAssistant) -> None:
     """Test Islamic prayer times timestamp format."""
     entry = MockConfigEntry(domain=islamic_prayer_times.DOMAIN, data={})
     entry.add_to_hass(hass)
@@ -123,7 +106,7 @@ async def test_islamic_prayer_times_timestamp_format(hass):
         )
 
 
-async def test_update(hass):
+async def test_update(hass: HomeAssistant) -> None:
     """Test sensors are updated with new prayer times."""
     entry = MockConfigEntry(domain=islamic_prayer_times.DOMAIN, data={})
     entry.add_to_hass(hass)
