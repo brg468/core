@@ -240,6 +240,15 @@ def zigpy_device_mock(zigpy_app_controller):
                 ):
                     common.patch_cluster(cluster)
 
+        if attributes is not None:
+            for ep_id, clusters in attributes.items():
+                for cluster_name, attrs in clusters.items():
+                    cluster = getattr(device.endpoints[ep_id], cluster_name)
+
+                    for name, value in attrs.items():
+                        attr_id = cluster.find_attribute(name).id
+                        cluster._attr_cache[attr_id] = value
+
         return device
 
     return _mock_dev
@@ -323,8 +332,8 @@ def zha_device_mock(
 
 @pytest.fixture
 def hass_disable_services(hass):
-    """Mock service register."""
-    with patch.object(hass.services, "async_register"), patch.object(
-        hass.services, "has_service", return_value=True
+    """Mock services."""
+    with patch.object(
+        hass, "services", MagicMock(has_service=MagicMock(return_value=True))
     ):
         yield hass
