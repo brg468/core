@@ -10,6 +10,7 @@ import logging
 from time import time
 from typing import Any
 
+import aiohttp
 import pyatmo
 from pyatmo.modules.device_types import DeviceCategory as NetatmoDeviceCategory
 
@@ -134,8 +135,10 @@ class NetatmoDataHandler:
 
     async def async_setup(self) -> None:
         """Set up the Netatmo data handler."""
-        async_track_time_interval(
-            self.hass, self.async_update, timedelta(seconds=SCAN_INTERVAL)
+        self.config_entry.async_on_unload(
+            async_track_time_interval(
+                self.hass, self.async_update, timedelta(seconds=SCAN_INTERVAL)
+            )
         )
 
         self.config_entry.async_on_unload(
@@ -206,6 +209,10 @@ class NetatmoDataHandler:
             _LOGGER.debug(err)
 
         except asyncio.TimeoutError as err:
+            _LOGGER.debug(err)
+            return
+
+        except aiohttp.ClientConnectorError as err:
             _LOGGER.debug(err)
             return
 
