@@ -1,9 +1,11 @@
 """Auth models."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from functools import cached_property
 import secrets
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import Any, NamedTuple
 import uuid
 
 import attr
@@ -16,12 +18,6 @@ from homeassistant.util import dt as dt_util
 
 from . import permissions as perm_mdl
 from .const import GROUP_ID_ADMIN
-
-if TYPE_CHECKING:
-    from functools import cached_property
-else:
-    from homeassistant.backports.functools import cached_property
-
 
 TOKEN_TYPE_NORMAL = "normal"
 TOKEN_TYPE_SYSTEM = "system"

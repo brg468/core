@@ -1,4 +1,5 @@
 """Provide a way to connect devices to one physical location."""
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -14,6 +15,7 @@ from .normalized_name_base_registry import (
     NormalizedNameBaseRegistryItems,
     normalize_name,
 )
+from .registry import BaseRegistry
 from .storage import Store
 from .typing import UNDEFINED, UndefinedType
 
@@ -22,7 +24,6 @@ EVENT_AREA_REGISTRY_UPDATED = "area_registry_updated"
 STORAGE_KEY = "core.area_registry"
 STORAGE_VERSION_MAJOR = 1
 STORAGE_VERSION_MINOR = 6
-SAVE_DELAY = 10
 
 
 class EventAreaRegistryUpdatedData(TypedDict):
@@ -86,10 +87,49 @@ class AreaRegistryStore(Store[dict[str, list[dict[str, Any]]]]):
         return old_data
 
 
-class AreaRegistry:
+class AreaRegistryItems(NormalizedNameBaseRegistryItems[AreaEntry]):
+    """Class to hold area registry items."""
+
+    def __init__(self) -> None:
+        """Initialize the area registry items."""
+        super().__init__()
+        self._labels_index: dict[str, dict[str, Literal[True]]] = {}
+        self._floors_index: dict[str, dict[str, Literal[True]]] = {}
+
+    def _index_entry(self, key: str, entry: AreaEntry) -> None:
+        """Index an entry."""
+        if entry.floor_id is not None:
+            self._floors_index.setdefault(entry.floor_id, {})[key] = True
+        for label in entry.labels:
+            self._labels_index.setdefault(label, {})[key] = True
+        super()._index_entry(key, entry)
+
+    def _unindex_entry(
+        self, key: str, replacement_entry: AreaEntry | None = None
+    ) -> None:
+        entry = self.data[key]
+        if labels := entry.labels:
+            for label in labels:
+                self._unindex_entry_value(key, label, self._labels_index)
+        if floor_id := entry.floor_id:
+            self._unindex_entry_value(key, floor_id, self._floors_index)
+        return super()._unindex_entry(key, replacement_entry)
+
+    def get_areas_for_label(self, label: str) -> list[AreaEntry]:
+        """Get areas for label."""
+        data = self.data
+        return [data[key] for key in self._labels_index.get(label, ())]
+
+    def get_areas_for_floor(self, floor: str) -> list[AreaEntry]:
+        """Get areas for floor."""
+        data = self.data
+        return [data[key] for key in self._floors_index.get(floor, ())]
+
+
+class AreaRegistry(BaseRegistry):
     """Class to hold a registry of areas."""
 
-    areas: NormalizedNameBaseRegistryItems[AreaEntry]
+    areas: AreaRegistryItems
     _area_data: dict[str, AreaEntry]
 
     def __init__(self, hass: HomeAssistant) -> None:
@@ -253,7 +293,7 @@ class AreaRegistry:
 
         data = await self._store.async_load()
 
-        areas = NormalizedNameBaseRegistryItems[AreaEntry]()
+        areas = AreaRegistryItems()
 
         if data is not None:
             for area in data["areas"]:
@@ -272,11 +312,6 @@ class AreaRegistry:
 
         self.areas = areas
         self._area_data = areas.data
-
-    @callback
-    def async_schedule_save(self) -> None:
-        """Schedule saving the area registry."""
-        self._store.async_delay_save(self._data_to_save, SAVE_DELAY)
 
     @callback
     def _data_to_save(self) -> dict[str, list[dict[str, Any]]]:
@@ -318,10 +353,11 @@ class AreaRegistry:
 
         @callback
         def _removed_from_registry_filter(
-            event: fr.EventFloorRegistryUpdated | lr.EventLabelRegistryUpdated,
+            event_data: fr.EventFloorRegistryUpdatedData
+            | lr.EventLabelRegistryUpdatedData,
         ) -> bool:
             """Filter all except for the item removed from registry events."""
-            return event.data["action"] == "remove"
+            return event_data["action"] == "remove"
 
         @callback
         def _handle_floor_registry_update(event: fr.EventFloorRegistryUpdated) -> None:
@@ -333,8 +369,9 @@ class AreaRegistry:
 
         self.hass.bus.async_listen(
             event_type=fr.EVENT_FLOOR_REGISTRY_UPDATED,
-            event_filter=_removed_from_registry_filter,  # type: ignore[arg-type]
-            listener=_handle_floor_registry_update,  # type: ignore[arg-type]
+            event_filter=_removed_from_registry_filter,
+            listener=_handle_floor_registry_update,
+            run_immediately=True,
         )
 
         @callback
@@ -349,8 +386,9 @@ class AreaRegistry:
 
         self.hass.bus.async_listen(
             event_type=lr.EVENT_LABEL_REGISTRY_UPDATED,
-            event_filter=_removed_from_registry_filter,  # type: ignore[arg-type]
-            listener=_handle_label_registry_update,  # type: ignore[arg-type]
+            event_filter=_removed_from_registry_filter,
+            listener=_handle_label_registry_update,
+            run_immediately=True,
         )
 
 
@@ -370,10 +408,10 @@ async def async_load(hass: HomeAssistant) -> None:
 @callback
 def async_entries_for_floor(registry: AreaRegistry, floor_id: str) -> list[AreaEntry]:
     """Return entries that match a floor."""
-    return [area for area in registry.areas.values() if floor_id == area.floor_id]
+    return registry.areas.get_areas_for_floor(floor_id)
 
 
 @callback
 def async_entries_for_label(registry: AreaRegistry, label_id: str) -> list[AreaEntry]:
     """Return entries that match a label."""
-    return [area for area in registry.areas.values() if label_id in area.labels]
+    return registry.areas.get_areas_for_label(label_id)
