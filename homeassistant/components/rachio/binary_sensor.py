@@ -111,8 +111,10 @@ def _create_entities(hass: HomeAssistant, config_entry: ConfigEntry) -> list[Ent
     )
     for base_station in person.base_stations:
         entities.extend(
-            RachioHoseTimerBinarySensor(valve, base_station.coordinator, description)
-            for valve in base_station.coordinator.data.values()
+            RachioHoseTimerBinarySensor(
+                valve, base_station.status_coordinator, description
+            )
+            for valve in base_station.status_coordinator.data.values()
             for description in HOSE_TIMER_BINARY_SENSOR_TYPES
             if description.exists_fn(valve)
         )
